@@ -1,0 +1,332 @@
+<script>
+// =============================
+// 恋愛トリセツ仙人：質問フロー用JS
+// =============================
+
+document.addEventListener("DOMContentLoaded", () => {
+  const chatLog   = document.getElementById("chat-log");
+  const chatForm  = document.getElementById("chat-form");
+  const userInput = document.getElementById("user-input");
+
+  // 会話の状態
+  const state = {
+    stepIndex: 0,
+    answers: {
+      profile: {
+        name: "",
+        gender: "",
+        age: "",
+        mbti: "",
+        loveType: ""
+      },
+      workMode: "",
+      loveMode: "",
+      pastPattern: "",
+      painPoints: "",
+      values: "",
+      currentStatus: {
+        hasPerson: "",
+        detail: ""
+      }
+    }
+  };
+
+  // 7ステップの質問文（次の質問は固定で出す）
+  const steps = [
+    {
+      id: "profile",
+      question:
+        "まずはお主のことを知りたいのう。\n" +
+        "ニックネーム・性別・年齢・MBTI・恋愛16タイプを、次のような形式で教えてくれい。\n" +
+        "例）あゆむ, 男, 24, ESFP, 恋愛モンスター"
+    },
+    {
+      id: "workMode",
+      question:
+        "ほうほう、輪郭が見えてきたぞ。\n" +
+        "次は、仕事モードのお主についてじゃ。\n" +
+        "普段の仕事ぶりに一番近いと思うことを、自由に書いてくれい。\n" +
+        "（例：行動力がある・ムードメーカー・責任感が強い など）"
+    },
+    {
+      id: "loveMode",
+      question:
+        "では恋愛モードのお主はどうじゃろう。\n" +
+        "付き合ったときの“いつものクセ”に近いものを、自由に書いてみてくれ。\n" +
+        "（例：連絡多め・相手優先になる・距離を詰めるのはゆっくり 等）"
+    },
+    {
+      id: "pastPattern",
+      question:
+        "これまでの恋の“だいたいのパターン”も知っておきたいのう。\n" +
+        "ざっくり、「こんな恋が多かった」というのを一文で教えてくれい。"
+    },
+    {
+      id: "painPoints",
+      question:
+        "恋で一番しんどくなりやすい場面も聞いておこうかの。\n" +
+        "当てはまりそうな場面を、2〜3個くらい並べて教えてくれい。\n" +
+        "（例：連絡が減ったとき・相手の予定が見えないとき など）"
+    },
+    {
+      id: "values",
+      question:
+        "では、お主が恋で一番大事にしたい“価値観”は何じゃろうか。\n" +
+        "大事にしたいことを2つくらい書いてみてくれい。\n" +
+        "（例：安心感・ドキドキ・自分の時間・将来を一緒に考える など）"
+    },
+    {
+      id: "currentStatus",
+      question:
+        "最後に、今の状況も少しだけ聞かせてくれんか。\n" +
+        "今“この人のことで頭がいっぱい”な相手はおるかの？\n" +
+        "いる／いない に続けて、いる場合は「会社の同期」「アプリで出会った同い年」など一言で書いてくれい。\n" +
+        "例）いる, 会社の同期"
+    }
+  ];
+
+  // -----------------------------
+  // 画面表示用のユーティリティ
+  // -----------------------------
+  function addMessage(role, text) {
+    const wrapper = document.createElement("div");
+    wrapper.className = role === "user" ? "msg msg-user" : "msg msg-bot";
+
+    const bubble = document.createElement("div");
+    bubble.className = "bubble";
+    bubble.textContent = text;
+
+    wrapper.appendChild(bubble);
+    chatLog.appendChild(wrapper);
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+
+  // -----------------------------
+  // プロフィールテキストをパース
+  // "あゆむ, 男, 24, ESFP, 恋愛モンスター"
+  // -----------------------------
+  function parseProfileAnswer(raw) {
+    const parts = raw.split(",").map(s => s.trim());
+    const [name, gender, age, mbti, loveType] = parts;
+
+    return {
+      name: name || "",
+      gender: gender || "",
+      age: age || "",
+      mbti: (mbti || "").toUpperCase(),
+      loveType: loveType || ""
+    };
+  }
+
+  // -----------------------------
+  // MBTI簡易説明（1〜2文）
+  // -----------------------------
+  function describeMbti(mbti) {
+    const key = (mbti || "").toUpperCase();
+    const map = {
+      ESTJ: "しっかり者で現場を取り仕切るリーダー気質じゃな。",
+      ESFP: "場を明るくするムードメーカー気質が強いタイプじゃ。",
+      ENFP: "直感とノリで人を巻き込むエネルギッシュなタイプじゃな。",
+      INFJ: "人の気持ちを深く読む、静かな情熱家のようなタイプじゃ。",
+      INFP: "自分の世界と理想を大事にする、やさしいロマンチストじゃのう。",
+      ISTJ: "きちんと積み上げる堅実タイプで、約束や責任を重んじる性格じゃ。",
+      ISFP: "その場の雰囲気や感覚を大事にする、マイペースなアーティスト気質じゃな。"
+    };
+    const base = map[key] || "自分なりのスタイルで周囲を引っ張る一面がありそうじゃ。";
+    return `ほう、${key}か。${base}`;
+  }
+
+  // -----------------------------
+  // 各ステップ回答後の仙人コメント生成
+  // （ここはあとでAPIに差し替えてもOK） 
+  // -----------------------------
+  function buildSenninReply(stepId, userText) {
+    const a = state.answers;
+
+    switch (stepId) {
+      case "profile": {
+        const { name, gender, age, mbti, loveType } = a.profile;
+        const mbtiLine = describeMbti(mbti);
+        const loveLine =
+          loveType
+            ? `恋愛16タイプは「${loveType}」とな。恋の場面では、そのカラーがかなり顔を出しそうじゃ。`
+            : "恋愛16タイプも、これからの答えからわしなりに読み解いていくとしよう。";
+
+        const ageLine = age
+          ? `年齢は${age}歳あたりかの。今の年代なら、恋も仕事もここから一気に経験が増える時期じゃ。`
+          : "今の年代なら、恋も仕事もここから一気に経験が増える時期じゃ。";
+
+        const bridge =
+          `では次に、仕事モードの${name || "お主"}がどんなふるまいをしがちか、聞かせてくれい。`;
+
+        return [mbtiLine, loveLine, ageLine, bridge].join("\n");
+      }
+
+      case "workMode": {
+        const name = a.profile.name || "お主";
+        const line1 = `ふむふむ、仕事モードの${name}は「${userText}」といったスタイルが目立つようじゃな。`;
+        const line2 = `その働き方は、周りから見ても「${name}と言えばこういう雰囲気」と印象づけられておるはずじゃ。`;
+        const line3 = `実はこの“仕事でのクセ”は、恋愛のときにも意外とそのまま顔を出しやすいんじゃ。`;
+        const bridge =
+          `では次に、恋愛モードになったときのお主のクセを教えてくれい。`;
+        return [line1, line2, line3, bridge].join("\n");
+      }
+
+      case "loveMode": {
+        const name = a.profile.name || "お主";
+        const line1 = `ほう、恋愛モードになると「${userText}」という動き方になることが多いようじゃな。`;
+        const line2 = `好きになったときのスイッチの入り方や、相手への向き合い方に、${name}らしさが強く出ておる。`;
+        const line3 = `その全力さは大きな魅力じゃが、バランスを崩すと自分もしんどくなりやすい両刃の剣でもあるのう。`;
+        const bridge =
+          `ここからは、これまでの恋がだいたいどんなパターンだったかも聞いていくぞい。`;
+        return [line1, line2, line3, bridge].join("\n");
+      }
+
+      case "pastPattern": {
+        const line1 = `なるほど、「${userText}」というのが、これまでの恋のだいたいのパターンなんじゃな。`;
+        const line2 = `それはたまたま相手がそうだっただけでなく、お主の恋のクセも少し影響しているはずじゃ。`;
+        const line3 = `このパターンを良い悪いで裁く必要はないが、知っておくと次の恋の地図がだいぶ描きやすくなる。`;
+        const bridge =
+          `では次に、どんな場面でしんどくなりやすいか、具体的に教えてくれい。`;
+        return [line1, line2, line3, bridge].join("\n");
+      }
+
+      case "painPoints": {
+        const line1 = `ふむふむ、「${userText}」のような場面で心がきゅっとなりやすいようじゃな。`;
+        const line2 = `そこには、相手への期待と、自分を守りたい気持ちの両方が重なっておるように見える。`;
+        const line3 = `この“しんどくなるポイント”を押さえておくと、トリセツの『つまずきやすいポイント』がかなり精度高く書けるのう。`;
+        const bridge =
+          `あと少しじゃ。次は、お主が恋で一番大事にしたいものを教えてくれ。`;
+        return [line1, line2, line3, bridge].join("\n");
+      }
+
+      case "values": {
+        const line1 = `おお、「${userText}」を大事にしたいんじゃな。`;
+        const line2 = `それは、お主がどんな関係を“理想の恋”と感じているかを知るうえで、とても大事なヒントになる。`;
+        const line3 = `この価値観に沿って動けるとき、お主の恋は一番輝きやすいはずじゃ。`;
+        const bridge =
+          `最後に、今の恋の状況を少しだけ聞いて、無料トリセツをまとめていくぞい。`;
+        return [line1, line2, line3, bridge].join("\n");
+      }
+
+      case "currentStatus": {
+        const name = a.profile.name || "お主";
+        const status = a.currentStatus.hasPerson || "状況";
+        const detail = a.currentStatus.detail
+          ? `（${a.currentStatus.detail}）`
+          : "";
+        const line1 = `なるほど、今は「${status}」という状況なんじゃな${detail}。`;
+        const line2 = `その前提も踏まえて、${name}専用の恋愛トリセツを組み立ててみるとしよう。`;
+        const line3 = `ここまで答えてくれてありがとうよ。お主の答えは、すべてトリセツの材料になっておる。`;
+        const line4 = `このあと別画面で、無料版の恋愛トリセツをお見せするから、楽しみに待っておるのじゃ。`;
+        return [line1, line2, line3, line4].join("\n");
+      }
+
+      default:
+        return "";
+    }
+  }
+
+  // -----------------------------
+  // 回答をstateに保存する
+  // -----------------------------
+  function saveAnswer(stepId, text) {
+    switch (stepId) {
+      case "profile": {
+        state.answers.profile = parseProfileAnswer(text);
+        break;
+      }
+      case "workMode": {
+        state.answers.workMode = text;
+        break;
+      }
+      case "loveMode": {
+        state.answers.loveMode = text;
+        break;
+      }
+      case "pastPattern": {
+        state.answers.pastPattern = text;
+        break;
+      }
+      case "painPoints": {
+        state.answers.painPoints = text;
+        break;
+      }
+      case "values": {
+        state.answers.values = text;
+        break;
+      }
+      case "currentStatus": {
+        // "いる, 会社の同期" / "いない"
+        const parts = text.split(",").map(s => s.trim());
+        const hasPerson = parts[0] || "";
+        const detail = parts[1] || "";
+        state.answers.currentStatus.hasPerson = hasPerson;
+        state.answers.currentStatus.detail = detail;
+        break;
+      }
+      default:
+        break;
+    }
+  }
+
+  // -----------------------------
+  // 現在ステップの質問を表示
+  // -----------------------------
+  function askCurrentQuestion() {
+    if (state.stepIndex >= steps.length) {
+      // ここで無料トリセツ生成処理に進む（別ページ遷移など）
+      console.log("全ての質問が終了。トリセツ生成へ。", state.answers);
+      return;
+    }
+    const step = steps[state.stepIndex];
+    addMessage("bot", step.question);
+  }
+
+  // -----------------------------
+  // フォーム送信ハンドラ
+  // -----------------------------
+  chatForm.addEventListener("submit", (e) => {
+    e.preventDefault();
+    const text = userInput.value.trim();
+    if (!text) return;
+
+    const step = steps[state.stepIndex];
+    const stepId = step.id;
+
+    // ユーザ発言を表示
+    addMessage("user", text);
+
+    // stateに保存
+    saveAnswer(stepId, text);
+
+    // 仙人コメント生成（現状はローカル関数だが、ここをAPI呼び出しに差し替えればOK）
+    const reply = buildSenninReply(stepId, text);
+    if (reply) {
+      addMessage("bot", reply);
+    }
+
+    // 次のステップへ
+    state.stepIndex += 1;
+
+    // 入力欄クリア
+    userInput.value = "";
+
+    // 次の質問 or 終了
+    if (state.stepIndex < steps.length) {
+      askCurrentQuestion();
+    } else {
+      // 全質問終了時：ここでトリセツ生成画面への遷移などを書ける
+      // 例：window.location.href = "/free-report";
+      console.log("質問完了。トリセツ生成に必要なデータ：", state.answers);
+    }
+  });
+
+  // 初回メッセージ
+  addMessage(
+    "bot",
+    "よく来てくれたのう、恋愛トリセツ仙人じゃ。\nここからいくつか質問をするので、答えてくれた内容をもとにお主専用の恋愛トリセツを作っていくぞい。"
+  );
+  askCurrentQuestion();
+});
+</script>
